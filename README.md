@@ -215,3 +215,7 @@ Each JVM runs one build in one JDK, configuration and look and feel. It writes
 `out/<run>/deltas/…`, and the report reads both. A window is created for each GUI but never shown. It is an
 undecorated, packed `JFrame`, sized per step, and it is validated until the whole tree is valid and no events are
 pending. Screenshots are taken with `printAll`.
+
+## License
+
+MIT, see [LICENSE](LICENSE). MigLayout itself is BSD-licensed; this tool only builds and runs it.
