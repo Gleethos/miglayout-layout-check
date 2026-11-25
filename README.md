@@ -39,8 +39,8 @@ builds both with Maven, runs the check, prints a verdict per build, and writes t
 
 ```
 Base: master (f788e6e v11.5.2)
-  my-branch              8451 steps, all identical  => NO DIFFERENCES
-  (base again)           8451 steps: 12 pixels  => the base build varies by itself in these steps
+  my-branch              25353 steps: 29 noise  => NO DIFFERENCES
+  (base again)           25353 steps: 35 pixels  => the base build varies by itself in these steps
 Report: out/master-vs-my-branch/index.html
 ```
 
@@ -80,7 +80,7 @@ feel, group or text, and choose to show the differences, the noise, or everythin
 The buttons above the list set the view for all cards; the buttons on a card change only that card. When a component
 moved, the card lists it with its bounds in both builds.
 
-![A snapshot whose layout differs, as a pixel delta](docs/delta.png)
+![A snapshot whose layout differs: side by side, then as a pixel delta, with the components that moved](docs/difference.png)
 
 When nothing differs, choose *everything* under *Show* and page through. Every delta is black.
 
@@ -188,9 +188,9 @@ This is the check that was run for the baseline memo, on JDK 21 and 25 (f788e6e 
 
 | Build | Steps that differ from 11.5.2 |
 |---|---|
-| `pr`: remember a baseline within one layout pass, only for components whose answer depends on the size alone | none |
-| `memo-only`: the memo reverted from #119 | thousands, with different bounds |
-| `double-call`: remember every baseline, but ask HTML components twice | thousands, with different bounds and container sizes |
+| `pr`: remember a baseline within one layout pass, only for components whose answer depends on the size alone | none of 50,706 (60 noise steps: GTK pixels that vary in 11.5.2 itself) |
+| `memo-only`: the memo reverted from #119 | 5,009 of 50,706: 4,880 with different bounds |
+| `double-call`: remember every baseline, but ask HTML components twice | 5,208 of 50,706: 3,382 with different bounds, 1,716 with different container sizes |
 
 ## How it works
 
