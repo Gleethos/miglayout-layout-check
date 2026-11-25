@@ -173,6 +173,7 @@ const store = {
 	get(k, d) { try { return localStorage.getItem("layout-check." + k) ?? d } catch { return d } },
 	set(k, v) { try { localStorage.setItem("layout-check." + k, v) } catch {} }
 };
+const plural = (n, word) => `${num(n)} ${word}${n === 1 ? "" : "s"}`;
 const name = c => c === AGAIN ? BASE + " (again)" : c;
 const cfgKeys = [...new Set(R.combos.map(([j, c]) => j + " / " + c))];
 const groups = [...new Set(R.scenarios.map(s => s.group || "Other"))];
@@ -183,7 +184,7 @@ const real = R.candidates.filter(c => c !== AGAIN);
 $("#title").textContent = real.length === 1 ? `${name(real[0])} compared with ${BASE}` : `${real.length} builds compared with ${BASE}`;
 $("#builds").innerHTML = Object.entries(M.builds).map(([n, b]) =>
 	`<div><b>${esc(n)}</b>${n === BASE ? " <span class=\"chip s-noise\">base</span>" : ""} <span class="mono">${esc(b.subject || b.description || "")}</span>${b.ref && !(b.subject || "").startsWith(b.ref) ? ` <span class="muted">(${esc(b.ref)})</span>` : ""}</div>`).join("") +
-	`<div>${num(R.scenarios.length)} GUIs · ${M.lafs.length} look and feels · ${Object.keys(M.configs).length} JVM configs · ${Object.keys(M.jdks).length} JDK${Object.keys(M.jdks).length > 1 ? "s" : ""}` +
+	`<div>${plural(R.scenarios.length, "GUI")} · ${plural(M.lafs.length, "look and feel")} · ${plural(Object.keys(M.configs).length, "JVM config")} · ${plural(Object.keys(M.jdks).length, "JDK")}` +
 	`${M.only ? ` · only <code>${esc(M.only)}</code>` : ""} · ${esc(M.finished || M.started || "")}</div>`;
 
 function totalSteps(c) { return Object.values(R.totals[c]).reduce((a, b) => a + b, 0) }
@@ -193,7 +194,7 @@ $("#summary").innerHTML = R.candidates.map(c => {
 	if (again) return `<div class="verdict">
 		<div class="head"><span class="name">Noise floor</span><span class="muted">${esc(BASE)} against itself</span></div>
 		<div class="big" style="color:var(--fg)">${bad ? `${num(bad)} of ${num(n)} steps vary` : "Deterministic"}</div>
-		<div class="muted">The base build ran twice. ${bad ? "Where its two runs differ, nothing can be blamed on a candidate: those steps count as noise." : "Both runs were identical in every step."}</div>
+		<div class="muted">The base build ran twice. ${bad ? "Where its two runs differ, a candidate's differences are checked again before they count, and are noise if the base build gives them too." : "Both runs were identical in every step."}</div>
 		<div class="chips">${chips}</div></div>`;
 	return `<div class="verdict ${bad ? "bad" : "ok"}">
 		<div class="head"><span class="name">${esc(c)}</span><span class="mono muted">${esc(M.builds[c]?.subject || "")}</span></div>
