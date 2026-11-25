@@ -1,0 +1,8 @@
+# Builds, downloads and compiled classes
+.cache/
+# Run directories: results, screenshots, deltas and reports
+out/
+# Notes that are not part of the tool
+drafts/
+__pycache__/
+*.pyc

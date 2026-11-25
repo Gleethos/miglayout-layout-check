@@ -1,0 +1,10 @@
+#!/usr/bin/env python3
+"""Runs layoutcheck's benchmark from a checkout of this repository: ./layout-bench BASE CANDIDATE (see --help)."""
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from layoutcheck.bench import main  # noqa: E402
+
+sys.stdout.reconfigure(line_buffering=True)
+sys.exit(main())
