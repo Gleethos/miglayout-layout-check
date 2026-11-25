@@ -28,6 +28,11 @@ public final class Runner
 		String laf = args[1];
 		Pattern only = args.length > 2 ? Pattern.compile(args[2]) : null;
 
+		Thread.setDefaultUncaughtExceptionHandler((thread, t) -> {
+			synchronized (UNCAUGHT) {
+				UNCAUGHT.add(stackTrace(t));
+			}
+		});
 		SwingUtilities.invokeAndWait(() -> {
 			try {
 				Lafs.set(laf);
@@ -75,29 +80,44 @@ public final class Runner
 			});
 			int ix = 0;
 			for (Scenario.Step step : s.effectiveSteps()) {
-				if (ix > 0)
-					sb.append(",");
-				String[] result = new String[1];
-				final int stepIx = ix;
+				// Whatever goes wrong in the step, in the layout that follows (also in a relayout posted with
+				// invokeLater, which only the uncaught exception handler sees) or in the capture is the step's error.
+				List<String> errors = new ArrayList<>();
 				SwingUtilities.invokeAndWait(() -> {
 					try {
 						step.action().apply(ctx[0]);
-						result[0] = null;
 					} catch (Throwable t) {
-						result[0] = stackTrace(t);
+						errors.add(stackTrace(t));
 					}
 				});
-				settle(frame[0]);
+				try {
+					settle(frame[0]);
+				} catch (Throwable t) {
+					errors.add(stackTrace(unwrap(t)));
+				}
 				String[] capture = new String[1];
-				SwingUtilities.invokeAndWait(() -> capture[0] = capture(ctx[0], step, stepIx, dir));
+				final int stepIx = ix;
+				try {
+					SwingUtilities.invokeAndWait(() -> capture[0] = capture(ctx[0], stepIx, dir));
+				} catch (Throwable t) {
+					errors.add(stackTrace(unwrap(t)));
+				}
+				synchronized (UNCAUGHT) {
+					errors.addAll(UNCAUGHT);
+					UNCAUGHT.clear();
+				}
+				if (ix > 0)
+					sb.append(",");
 				sb.append("{\"label\":").append(q(step.label()));
-				if (result[0] != null)
-					sb.append(",\"error\":").append(q(result[0]));
-				sb.append(",").append(capture[0]).append("}");
+				if (!errors.isEmpty())
+					sb.append(",\"error\":").append(q(String.join("\n", errors)));
+				if (capture[0] != null)
+					sb.append(",").append(capture[0]);
+				sb.append("}");
 				ix++;
 			}
 		} catch (Throwable t) {
-			sb.append("],\"error\":").append(q(stackTrace(t))).append("}");
+			sb.append("],\"error\":").append(q(stackTrace(unwrap(t)))).append("}");
 			disposeQuietly(frame[0]);
 			return sb.toString();
 		}
@@ -131,7 +151,7 @@ public final class Runner
 		return true;
 	}
 
-	private static String capture(StepContext ctx, Scenario.Step step, int ix, File dir)
+	private static String capture(StepContext ctx, int ix, File dir)
 	{
 		JComponent root = ctx.root;
 		StringBuilder sb = new StringBuilder();
@@ -197,6 +217,14 @@ public final class Runner
 		if (c instanceof javax.swing.text.JTextComponent && !(c instanceof JEditorPane))
 			return ((javax.swing.text.JTextComponent) c).getText();
 		return null;
+	}
+
+	/** Exceptions thrown on the event dispatch thread outside invokeAndWait, collected for the step they happen in. */
+	private static final List<String> UNCAUGHT = new ArrayList<>();
+
+	private static Throwable unwrap(Throwable t)
+	{
+		return t instanceof java.lang.reflect.InvocationTargetException && t.getCause() != null ? t.getCause() : t;
 	}
 
 	private static void disposeQuietly(JFrame f)

@@ -44,8 +44,8 @@ Base: master (f788e6e v11.5.2)
 Report: out/master-vs-my-branch/index.html
 ```
 
-The exit status is 0 when nothing differs, 1 when something does, and 2 when the check could not run completely. So
-it also works as a CI step.
+The exit status is 0 when nothing differs, 1 when something does, and 2 when the check could not run completely (a
+bad option or ref, a failed build or JVM). So it also works as a CI step.
 
 Where the commits come from:
 
@@ -53,7 +53,7 @@ Where the commits come from:
 |---|---|
 | `./layout-check A B` inside a MigLayout checkout | that checkout |
 | `./layout-check --repo ~/src/miglayout A B` | that checkout |
-| `./layout-check --repo https://github.com/you/miglayout.git A B` | a clone kept in `.cache/`, fetched when a commit is missing |
+| `./layout-check --repo https://github.com/you/miglayout.git A B` | a clone kept in `.cache/`, fetched on every run |
 | `./layout-check A B` anywhere else | a clone of upstream MigLayout |
 
 Builds are cached by commit in `.cache/builds/`, so only new commits get built.
@@ -91,13 +91,17 @@ When nothing differs, choose *everything* under *Show* and page through. Every d
 Not every GUI comes out the same in every JVM. GTK's text antialiasing, for one, varies between runs. To tell noise
 from real changes:
 
-1. The base build runs twice. Steps where its two runs disagree are noise, not regressions.
-2. Every GUI where a candidate differs is laid out again in fresh JVMs, three times with each build
-   (`--confirm-runs`). A step counts as a difference only when the candidate differs from *every* run of the base
-   build.
-3. Where the base build doesn't even agree with itself on the pixels, only bounds, sizes and errors are compared.
+1. The base build runs twice, to measure what varies by itself.
+2. Every JVM in which a candidate differs runs again, three times with each build (`--confirm-runs`). A rerun lays
+   out the same GUIs in the same order as the first run, because a difference can depend on what ran before it in
+   the JVM (a static cache, for one).
+3. A step counts as noise only when *every* result of the candidate equals some result of the base build. Where the
+   base build doesn't even agree with itself on the pixels, that step compares only bounds, sizes and errors.
+4. Without confirming (`--confirm-runs 0`, or a candidate over `--confirm-limit`), only pixel differences in steps
+   where the base build's own pixels vary count as noise. Every other difference stays one.
 
-Each card says which of these applied.
+Each card says which of these applied. A JVM that fails, or leaves no readable results, makes the exit status 2: its
+GUIs could not be compared, so the check never says "no differences" for them.
 
 ## The GUIs
 
@@ -143,7 +147,7 @@ base build, so use only API that both builds have.
 | `--only REGEX` | all | the GUIs whose id matches |
 | `--jobs N` | half the cores | JVMs at a time |
 | `--confirm-runs N` | 3 | fresh runs of each build for every GUI that differs; 0 turns confirming off |
-| `--confirm-limit N` | 150 | a candidate with more differing GUIs than this is reported without confirming |
+| `--confirm-limit N` | 30 | a candidate that differs in more JVMs (JDK, config and look and feel) than this is reported without confirming |
 | `--probe-baselines` | off | lists the components whose `getBaseline(w, h)` depends on earlier calls; see below |
 | `--out DIR` | `out/BASE-vs-CANDIDATE` | |
 | `--report-only` | | rebuilds the report of `--out` from its results |

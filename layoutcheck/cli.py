@@ -15,10 +15,12 @@ import re
 import shutil
 import sys
 import time
+import traceback
 import webbrowser
 from pathlib import Path
 
 from . import compare, confirm, java, report, sources
+from .errors import CheckError
 
 HERE = Path(__file__).resolve().parent.parent
 CACHE = HERE / ".cache"
@@ -56,8 +58,9 @@ def parse_args(argv):
     ap.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 2) // 2), help="JVMs to run at once")
     ap.add_argument("--confirm-runs", type=int, default=3, metavar="N",
                     help="fresh runs of each build for every scenario that differs (default 3, 0 = off)")
-    ap.add_argument("--confirm-limit", type=int, default=150, metavar="N",
-                    help="do not confirm a candidate with more differing scenarios than this (default 150)")
+    ap.add_argument("--confirm-limit", type=int, default=30, metavar="N",
+                    help="do not confirm a candidate that differs in more JVMs (JDK, config and look and feel) than "
+                         "this (default 30); its differences are then reported unconfirmed")
     ap.add_argument("--probe-baselines", action="store_true",
                     help="also list the components whose getBaseline(w, h) depends on earlier calls")
     ap.add_argument("--report-only", action="store_true", help="only rebuild the report of the run in --out")
@@ -71,27 +74,37 @@ def parse_args(argv):
     return args
 
 
+MARKER = ".layout-check-run"  # in every run directory, so that a run may replace an earlier one
+
+
+def file_name(text):
+    """text as a file name that is the same on every file system: letters, digits, '_', '.' and '-'."""
+    return re.sub(r"[^\w.-]+", "-", text, flags=re.ASCII).strip("-.") or "x"
+
+
 def name_builds(specs):
-    """[(name, ref)] from NAME=REF or REF; a name is a file name, unique among the builds."""
+    """[(name, ref)] from NAME=REF or REF; a name is a file name, unique among the builds even ignoring case."""
     named = []
     for spec in specs:
         name, ref = spec.split("=", 1) if re.match(r"^[\w.-]+=", spec) else (None, spec)
-        name = re.sub(r"[^\w.-]+", "-", name or ref).strip("-.") or "build"
-        while name in [n for n, _ in named]:
+        name = file_name(name or ref).replace("--", "-")
+        while name.lower() in [n.lower() for n, _ in named]:
             name += "-2"
         named.append((name, ref))
     return named
 
 
 def pairs(specs, what):
+    """{name: value} from NAME=VALUE (for --jdk also a bare JAVA_HOME); names must be file names."""
     result = {}
     for spec in specs:
         if "=" not in spec:
-            if what == "jdk":
-                spec = f"{Path(spec).name}={spec}"
-            else:
-                sys.exit(f"--{what} {spec}: expected NAME=VALUE")
+            if what != "jdk":
+                raise CheckError(f"--{what} {spec}: expected NAME=VALUE")
+            spec = f"{file_name(Path(spec).name)}={spec}"
         name, value = spec.split("=", 1)
+        if name != file_name(name):
+            raise CheckError(f"--{what} {spec}: use only letters, digits, '_', '.' and '-' in the name")
         result[name] = value
     return result
 
@@ -100,8 +113,14 @@ def main(argv=None):
     args = parse_args(argv)
     try:
         return check(args) if not args.report_only else rebuild_report(Path(args.out).resolve(), args)
-    except sources.SourceError as e:
+    except CheckError as e:
         print(f"layout-check: {e}", file=sys.stderr)
+        return 2
+    except KeyboardInterrupt:
+        print("layout-check: interrupted", file=sys.stderr)
+        return 2
+    except Exception:
+        traceback.print_exc()
         return 2
 
 
@@ -116,24 +135,25 @@ def check(args):
         builds[name] = sources.build(repo, name, ref, sha, CACHE)
     base = named[0][0]
     flatlaf = sources.flatlaf(CACHE)
+    jdks = pairs(args.jdk, "jdk") if args.jdk else {"jdk": ""}
+    configs = pairs(args.config, "config") if args.config else dict(CONFIGS)
+    for home in jdks.values():
+        java.java_exe(home)
 
     out = Path(args.out or HERE / "out" / f"{base}-vs-{named[1][0]}").resolve()
     if out.exists():
-        if not (out / "meta.json").exists() and any(out.iterdir()):
-            sys.exit(f"{out} exists and is not a run directory; pick another --out")
+        if not out.is_dir() or (any(out.iterdir()) and not (out / MARKER).exists() and not (out / "meta.json").exists()):
+            raise CheckError(f"{out} exists and is not a run directory; pick another --out")
         shutil.rmtree(out)
     out.mkdir(parents=True)
+    (out / MARKER).write_text("A layout-check run directory; the next run with this --out replaces it.\n")
     # The catalogue is compiled per run, so that runs can go on side by side.
     classes = java.compile_catalogue(builds[base].jars() + [flatlaf], out / "classes")
-
-    jdks = pairs(args.jdk, "jdk") if args.jdk else {"jdk": ""}
-    configs = pairs(args.config, "config") if args.config else dict(CONFIGS)
-    first_java = java.java_exe(next(iter(jdks.values())))
-    supported = java.supported_lafs(first_java, classes, builds[base].jars() + [flatlaf])
+    supported = java.supported_lafs(java.java_exe(next(iter(jdks.values()))), classes, builds[base].jars() + [flatlaf])
     lafs = args.laf or supported
     for laf in lafs:
         if laf not in supported:
-            sys.exit(f"Look and feel {laf} is not available here; available: {' '.join(supported)}")
+            raise CheckError(f"Look and feel {laf} is not available here; available: {' '.join(supported)}")
 
     meta = {"base": base, "builds": {n: {"ref": b.ref, "sha": b.sha, "subject": b.subject} for n, b in builds.items()},
             "again": True, "jdks": jdks, "configs": configs, "lafs": lafs, "only": args.only, "repo": str(repo),
@@ -184,12 +204,20 @@ def check(args):
 def rebuild_report(out, args):
     meta = compare.load(out / "meta.json")
     if meta is None:
-        sys.exit(f"No run in {out} (no meta.json)")
+        raise CheckError(f"No finished run in {out} (no meta.json)")
     comparisons = compare.compare_all(out, meta, report.candidates_of(meta), args.jobs)
     return finish(out, meta, comparisons, args)
 
 
 def finish(out, meta, comparisons, args):
+    # A JVM that died without a readable results.json leaves its GUIs uncompared: never a clean verdict.
+    meta = dict(meta, failures=list(meta.get("failures") or []))
+    for jdk in meta["jdks"]:
+        for cfg in meta["configs"]:
+            for laf in meta["lafs"]:
+                for b in [meta["base"]] + report.candidates_of(meta):
+                    if compare.load(compare.unit_dir(out, jdk, cfg, b, laf) / "results.json") is None:
+                        meta["failures"].append(f"No readable results of {b} in {jdk} / {cfg} / {laf}")
     verdicts = confirm.verdicts(out, meta)
     totals = report.write(out, meta, comparisons, verdicts, compare.scenario_infos(out, meta))
     text, differs = report.summary(out, meta, totals)

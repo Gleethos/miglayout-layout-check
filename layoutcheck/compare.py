@@ -16,9 +16,10 @@ PAD = (255, 0, 255)
 
 
 def load(path):
+    """The JSON in path, or None when it is missing or cannot be read (a JVM that died while writing it)."""
     try:
         return json.loads(Path(path).read_text(encoding="utf-8"))
-    except FileNotFoundError:
+    except (FileNotFoundError, NotADirectoryError, ValueError):
         return None
 
 
@@ -107,7 +108,8 @@ def compare_step(ref, cand, ref_dir, cand_dir, delta_png=None):
 
 
 def compare_scenario(s, cs, ref_dir, cand_dir, delta_dir=None):
-    """[(status, details)] for every step of scenario s (base) and cs (candidate, or None)."""
+    """[(status, details)] for every step of scenario s (base) and cs (candidate, or None when the candidate has no
+    result for it). When the GUI as a whole failed differently, one more entry says so."""
     rsteps, csteps = s.get("steps", []), (cs or {}).get("steps", [])
     out = []
     for i in range(max(len(rsteps), len(csteps))):
@@ -115,9 +117,12 @@ def compare_scenario(s, cs, ref_dir, cand_dir, delta_dir=None):
         b = csteps[i] if i < len(csteps) else None
         delta = delta_dir / f"{i:02d}.png" if delta_dir else None
         status, det = compare_step(a, b, ref_dir, cand_dir, delta)
-        if status == "missing" and (s.get("error") or (cs or {}).get("error")):
-            det["error"] = {"ref": s.get("error"), "cand": (cs or {}).get("error") if cs else "(no result)"}
+        if cs is None:
+            det["note"] = "This build has no result for this GUI: its JVM failed (see the failures at the top)."
         out.append((status, det))
+    if cs is not None and first_line(s.get("error")) != first_line(cs.get("error")):
+        out.append(("error", {"error": {"ref": s.get("error"), "cand": cs.get("error")},
+                               "note": "Building or laying out the GUI as a whole failed differently."}))
     return out
 
 

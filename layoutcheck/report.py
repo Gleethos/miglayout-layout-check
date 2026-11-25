@@ -24,20 +24,25 @@ def classify(comparisons, verdicts, meta):
                     continue
                 verdict = v and v["steps"].get(str(i))
                 vary = v and i in v["pixelsVary"]
-                base_varies = i < len(base_again) and base_again[i][0] != "same"
+                base_varies = base_again[i][0] if i < len(base_again) and base_again[i][0] != "same" else None
+                note = None
                 if verdict:
                     runs = f"{v['baseRuns']} runs of the base build and {v['candRuns']} of this one"
                     only = " Only bounds, sizes and errors were compared: the base build's own pixels vary between runs." if vary else ""
                     if verdict == "noise":
                         status = "noise"
-                        det["note"] = f"Noise: in {runs}, the base build also gave this result.{only}"
+                        note = f"Noise: in {runs}, every result of this build equals one of the base build.{only}"
                     else:
-                        det["note"] = f"Confirmed: differs from every result of the base build in {runs}.{only}"
-                elif base_varies:
+                        note = f"Confirmed: differs from every result of the base build in {runs}.{only}"
+                elif base_varies == "pixels" and status == "pixels":
                     status = "noise"
-                    det["note"] = "Not confirmed: the base build itself gave two different results here."
+                    note = "Not confirmed, counted as noise: the base build's own two runs differ in their pixels here too."
+                elif base_varies:
+                    note = f"Not confirmed. The base build's own two runs differ here too ({base_varies})."
                 elif cand in meta.get("unconfirmed", []):
-                    det["note"] = "Not confirmed: too many differences to lay them out again (--confirm-limit)."
+                    note = "Not confirmed: too many differences to run them again (--confirm-limit)."
+                if note:
+                    det["note"] = f"{det['note']} {note}" if det.get("note") else note
                 steps[i] = (status, det)
 
 
@@ -73,7 +78,7 @@ def write(out, meta, comparisons, verdicts, infos):
 
     probe = {}
     for f in sorted((out / "probe").glob("*/*.json")):
-        build, laf = f.stem.split("--")
+        build, laf = f.stem.rsplit("--", 1)
         probe.setdefault(build, {})[f"{f.parent.name} | {laf}"] = load(f)
 
     data = {"meta": meta, "candidates": cands, "combos": combos,

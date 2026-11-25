@@ -13,6 +13,7 @@ from pathlib import Path
 
 from . import java, sources
 from .cli import CACHE, name_builds
+from .errors import CheckError
 
 BENCHMARK = "swing/src/test/java/net/miginfocom/swing/trial/LayoutPassBenchmark.java"
 
@@ -36,13 +37,19 @@ def main(argv=None):
         for name, ref in name_builds(args.refs):
             builds.append(sources.build(repo, name, ref, sources.resolve(repo, ref, fetchable), CACHE))
         source = benchmark_source(repo, args.benchmark_from, [b.sha for b in reversed(builds)])
-    except sources.SourceError as e:
+    except CheckError as e:
         print(f"layout-bench: {e}", file=sys.stderr)
         return 2
     if args.plain:
-        source = re.sub(r"\n[ \t]*@Override public int getBaseline\(int w, int h\) \{ return counted\(super\.getBaseline\(w, h\)\); \}", "", source)
+        source, overrides = re.subn(r"\n[ \t]*@Override public int getBaseline\(int w, int h\) "
+                                    r"\{ return counted\(super\.getBaseline\(w, h\)\); \}", "", source)
         source = re.sub(r" ?putClientProperty\(\"migLayout\.baselineCacheable\", Boolean\.TRUE\);", "", source)
-    dest = CACHE / "bench" / ("plain" if args.plain else "counting") / BENCHMARK.rsplit("/", 1)[1]
+        if not overrides:
+            print("layout-bench: --plain found no counting getBaseline overrides to remove in this benchmark",
+                  file=sys.stderr)
+            return 2
+    # Under its package's directories: since JDK 22 the source launcher wants the path to match the package.
+    dest = CACHE / "bench" / ("plain" if args.plain else "counting") / BENCHMARK.split("src/test/java/", 1)[1]
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(source, encoding="utf-8")
     cmd = [java.java_exe(args.jdk or "")]

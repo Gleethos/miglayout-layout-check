@@ -198,9 +198,9 @@ $("#summary").innerHTML = R.candidates.map(c => {
 	return `<div class="verdict ${bad ? "bad" : "ok"}">
 		<div class="head"><span class="name">${esc(c)}</span><span class="mono muted">${esc(M.builds[c]?.subject || "")}</span></div>
 		<div class="big">${bad ? `${num(bad)} of ${num(n)} steps differ` : "No differences"}</div>
-		<div class="muted">${bad ? "Steps whose bounds, container sizes, errors or pixels differ from every run of the base build."
-			: `All ${num(n)} steps have the same bounds, container sizes and errors as ${esc(BASE)}, and the same pixels.`}
-			${t.noise ? ` ${num(t.noise)} steps that also vary between runs of ${esc(BASE)} are counted as noise.` : ""}</div>
+		<div class="muted">${bad ? `Steps whose bounds, container sizes, errors or pixels differ from ${esc(BASE)}.` : ""}
+			${t.same ? `${num(t.same)} steps have the same bounds, container sizes, errors and pixels as ${esc(BASE)}.` : ""}
+			${t.noise ? `${num(t.noise)} steps differ, but ${esc(BASE)} gives the same results when it runs again; they count as noise. Show “noise” below to check them.` : ""}</div>
 		<div class="chips">${chips}</div></div>`;
 }).join("") + (M.failures?.length ? `<div class="verdict bad"><div class="name">${M.failures.length} JVMs failed</div>
 	<div class="muted">Their GUIs are missing from the comparison.</div><pre class="err">${esc(M.failures.join("\n\n"))}</pre></div>` : "");
@@ -329,8 +329,10 @@ for (const id of ["#pager-top", "#pager-bottom"]) $(id).addEventListener("click"
 });
 
 function zoomed(im) {
+	// On every load: blinking swaps the source, and the two screenshots may differ in size.
 	const set = () => { im.style.width = im.naturalWidth * +view.zoom + "px" };
-	if (im.complete && im.naturalWidth) set(); else im.addEventListener("load", set, {once: true});
+	im.addEventListener("load", set);
+	if (im.complete && im.naturalWidth) set();
 }
 
 function card(it) {
@@ -354,7 +356,7 @@ function card(it) {
 	if (d.error) extra += `<div class="shots"><div class="shot" style="flex:1 1 300px"><div class="label">${esc(BASE)}</div><pre class="err">${esc(d.error.ref || "no error")}</pre></div><div class="shot" style="flex:1 1 300px"><div class="label">${cn}</div><pre class="err">${esc(d.error.cand || "no error")}</pre></div></div>`;
 	return `<article class="card c-${it.st}" data-key="${esc(key)}">
 		<div class="card-head"><div class="card-title"><b>${esc(s.title || s.id)}</b>
-			<span>Step ${it.i + 1} of ${s.steps.length}: ${esc(s.steps[it.i] || "")}</span>
+			<span>${it.i < s.steps.length ? `Step ${it.i + 1} of ${s.steps.length}: ${esc(s.steps[it.i])}` : "The GUI as a whole"}</span>
 			<span class="where">${esc(s.id)} · ${esc(laf)} · ${esc(jdk)} / ${esc(cfg)}</span></div>
 			<div class="seg small" role="group" aria-label="View of this snapshot">${MODES.map(([v, l]) => `<button data-card-mode="${v}" aria-pressed="${mode === v}">${l}</button>`).join("")}</div></div>
 		<div class="stats">${stats}</div>${body}${extra}</article>`;

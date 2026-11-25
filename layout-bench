@@ -6,5 +6,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from layoutcheck.bench import main  # noqa: E402
 
-sys.stdout.reconfigure(line_buffering=True)
-sys.exit(main())
+if __name__ == "__main__":  # spawned worker processes import this file again
+    sys.stdout.reconfigure(line_buffering=True)
+    sys.exit(main())

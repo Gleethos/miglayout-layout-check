@@ -15,7 +15,10 @@ FLATLAF_URL = f"https://repo1.maven.org/maven2/com/formdev/flatlaf/{FLATLAF_VERS
 MIGLAYOUT_MARKER = "swing/src/main/java/net/miginfocom/swing/MigLayout.java"
 
 
-class SourceError(Exception):
+from .errors import TEXT, CheckError
+
+
+class SourceError(CheckError):
     """A repository, a ref or a build that cannot be used; the message says what to do."""
 
 
@@ -33,7 +36,7 @@ class Build:
 
 
 def git(repo, *args, check=True):
-    p = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
+    p = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, **TEXT)
     if check and p.returncode != 0:
         raise SourceError(f"git {' '.join(args)} failed in {repo}:\n{p.stderr.strip()}")
     return p
@@ -55,10 +58,13 @@ def find_repo(spec, cache):
         if not (clone / "HEAD").exists():
             print(f"Cloning {spec} ...")
             clone.parent.mkdir(parents=True, exist_ok=True)
-            p = subprocess.run(["git", "clone", "-q", "--mirror", spec, str(clone)], capture_output=True, text=True)
+            p = subprocess.run(["git", "clone", "-q", "--mirror", spec, str(clone)], capture_output=True, **TEXT)
             if p.returncode != 0:
                 shutil.rmtree(clone, ignore_errors=True)
                 raise SourceError(f"Cannot clone {spec}:\n{p.stderr.strip()}")
+        else:
+            print(f"Fetching {spec} ...")  # so that a branch name means its newest commit
+            git(clone, "fetch", "-q", "--prune", "origin")
         return clone, True
     repo = Path(spec).expanduser().resolve()
     if git(repo, "rev-parse", "--git-dir", check=False).returncode != 0:
@@ -70,12 +76,8 @@ def find_repo(spec, cache):
 
 
 def resolve(repo, ref, fetchable):
-    """The full commit id of ref, fetching a cached clone once when the ref is not known yet."""
+    """The full commit id of ref (a cached clone is fetched when it is opened)."""
     p = git(repo, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}", check=False)
-    if p.returncode != 0 and fetchable:
-        print(f"Fetching, {ref} is not known yet ...")
-        git(repo, "fetch", "-q", "--prune", "origin")
-        p = git(repo, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}", check=False)
     if p.returncode != 0:
         hint = "" if fetchable else " (fetch it first, or pass --repo with a URL that has it)"
         raise SourceError(f"{ref} is not a commit in {repo}{hint}")
@@ -99,7 +101,7 @@ def build(repo, name, ref, sha, cache):
                  "-Dmaven.test.skip=true", "-Dmaven.javadoc.skip=true", "-Dgpg.skip=true", "-Dmaven.source.skip=true"]
         # Offline first: quick when the dependencies are in the local Maven repository already.
         if subprocess.run(maven + ["-o"], cwd=tree, capture_output=True).returncode != 0:
-            p = subprocess.run(maven, cwd=tree, capture_output=True, text=True)
+            p = subprocess.run(maven, cwd=tree, capture_output=True, **TEXT)
             if p.returncode != 0:
                 raise SourceError(f"Maven could not build {subject}:\n{(p.stdout + p.stderr)[-4000:]}")
         # Into a directory of its own first, so that another check building the same commit never sees half of it.
